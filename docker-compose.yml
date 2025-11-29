@@ -1,0 +1,171 @@
+# OWASP Security Scanner - Docker Compose Configuration
+# Run with: docker-compose up -d
+
+version: "3.8"
+
+services:
+  # ===========================================
+  # Backend API (FastAPI)
+  # ===========================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: owasp-scanner-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_ENV=production
+      - DEBUG=false
+      - MONGODB_URL=mongodb://mongodb:27017
+      - MONGODB_DB_NAME=owasp_scanner
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-change-this-secret-key-in-production}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-this-jwt-secret-in-production}
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+      - PAYLOADS_DIR=/app/payloads
+      - REPORTS_DIR=/app/reports
+    volumes:
+      - payloads_data:/app/payloads
+      - reports_data:/app/reports
+      - ./backend/logs:/app/logs
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - owasp-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ===========================================
+  # Frontend (React + Vite)
+  # ===========================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: owasp-scanner-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    networks:
+      - owasp-network
+
+  # ===========================================
+  # MongoDB Database
+  # ===========================================
+  mongodb:
+    image: mongo:7.0
+    container_name: owasp-scanner-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_DATABASE=owasp_scanner
+    volumes:
+      - mongodb_data:/data/db
+      - ./docker/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    networks:
+      - owasp-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ===========================================
+  # Redis (Job Queue & Cache)
+  # ===========================================
+  redis:
+    image: redis:7-alpine
+    container_name: owasp-scanner-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    networks:
+      - owasp-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================
+  # Scanner Worker (Background Jobs)
+  # ===========================================
+  scanner-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: owasp-scanner-worker
+    restart: unless-stopped
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=2
+    environment:
+      - MONGODB_URL=mongodb://mongodb:27017
+      - MONGODB_DB_NAME=owasp_scanner
+      - REDIS_URL=redis://redis:6379/0
+      - PAYLOADS_DIR=/app/payloads
+      - REPORTS_DIR=/app/reports
+    volumes:
+      - payloads_data:/app/payloads
+      - reports_data:/app/reports
+    depends_on:
+      - mongodb
+      - redis
+      - backend
+    networks:
+      - owasp-network
+
+  # ===========================================
+  # Nginx Reverse Proxy (Optional)
+  # ===========================================
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: owasp-scanner-nginx
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
+  #     - ./docker/ssl:/etc/nginx/ssl:ro
+  #   depends_on:
+  #     - backend
+  #     - frontend
+  #   networks:
+  #     - owasp-network
+
+# ===========================================
+# Networks
+# ===========================================
+networks:
+  owasp-network:
+    driver: bridge
+
+# ===========================================
+# Volumes
+# ===========================================
+volumes:
+  mongodb_data:
+    name: owasp-scanner-mongodb-data
+  redis_data:
+    name: owasp-scanner-redis-data
+  payloads_data:
+    name: owasp-scanner-payloads
+  reports_data:
+    name: owasp-scanner-reports

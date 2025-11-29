@@ -1,0 +1,252 @@
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { apiService } from '../services/api'
+import {
+  Search,
+  Filter,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  Shield,
+  ExternalLink
+} from 'lucide-react'
+import { Link } from 'react-router-dom'
+
+const severityOptions = [
+  { value: '', label: 'همه' },
+  { value: 'critical', label: 'بحرانی' },
+  { value: 'high', label: 'بالا' },
+  { value: 'medium', label: 'متوسط' },
+  { value: 'low', label: 'پایین' },
+  { value: 'info', label: 'اطلاعاتی' },
+]
+
+const severityConfig = {
+  critical: { label: 'بحرانی', badge: 'badge-critical' },
+  high: { label: 'بالا', badge: 'badge-high' },
+  medium: { label: 'متوسط', badge: 'badge-medium' },
+  low: { label: 'پایین', badge: 'badge-low' },
+  info: { label: 'اطلاعاتی', badge: 'badge-info' },
+}
+
+export default function FindingsPage() {
+  const [filters, setFilters] = useState({
+    severity: '',
+    wstg_category: '',
+    search: ''
+  })
+  const [expandedFinding, setExpandedFinding] = useState(null)
+  
+  // Fetch findings
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['findings', filters],
+    queryFn: () => apiService.getFindings({ ...filters, limit: 100 }),
+  })
+  
+  // Fetch stats
+  const { data: statsData } = useQuery({
+    queryKey: ['findings-stats'],
+    queryFn: () => apiService.getFindingsStats(),
+  })
+  
+  // Fetch WSTG categories
+  const { data: categoriesData } = useQuery({
+    queryKey: ['wstg-categories'],
+    queryFn: () => apiService.getWSTGCategories(),
+  })
+  
+  const findings = data?.data?.items || []
+  const stats = statsData?.data || {}
+  const wstgCategories = categoriesData?.data || []
+  
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">یافته‌های امنیتی</h1>
+        <p className="text-gray-500 mt-1">مشاهده و مدیریت تمام آسیب‌پذیری‌ها</p>
+      </div>
+      
+      {/* Stats cards */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        {Object.entries(severityConfig).map(([key, config]) => (
+          <div
+            key={key}
+            onClick={() => setFilters(f => ({ ...f, severity: f.severity === key ? '' : key }))}
+            className={`card cursor-pointer transition-all ${
+              filters.severity === key ? 'ring-2 ring-primary-500' : 'hover:shadow-md'
+            }`}
+          >
+            <p className="text-3xl font-bold text-gray-900">
+              {stats.by_severity?.[key] || 0}
+            </p>
+            <p className="text-sm text-gray-500">{config.label}</p>
+          </div>
+        ))}
+      </div>
+      
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <input
+            type="text"
+            placeholder="جستجو در یافته‌ها..."
+            value={filters.search}
+            onChange={(e) => setFilters(f => ({ ...f, search: e.target.value }))}
+            className="input pr-10"
+          />
+        </div>
+        
+        <select
+          value={filters.severity}
+          onChange={(e) => setFilters(f => ({ ...f, severity: e.target.value }))}
+          className="input w-full sm:w-40"
+        >
+          {severityOptions.map((opt) => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+        
+        <select
+          value={filters.wstg_category}
+          onChange={(e) => setFilters(f => ({ ...f, wstg_category: e.target.value }))}
+          className="input w-full sm:w-48"
+        >
+          <option value="">همه دسته‌ها</option>
+          {wstgCategories.map((cat) => (
+            <option key={cat.id} value={cat.id}>{cat.name_fa || cat.name}</option>
+          ))}
+        </select>
+      </div>
+      
+      {/* Findings List */}
+      {isLoading ? (
+        <div className="space-y-3">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="card animate-pulse">
+              <div className="h-5 bg-gray-200 rounded w-1/3 mb-2"></div>
+              <div className="h-4 bg-gray-200 rounded w-1/4"></div>
+            </div>
+          ))}
+        </div>
+      ) : error ? (
+        <div className="card text-center py-12">
+          <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+          <p className="text-gray-600">خطا در دریافت یافته‌ها</p>
+        </div>
+      ) : findings.length === 0 ? (
+        <div className="card text-center py-12">
+          <Shield className="w-12 h-12 text-green-500 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">یافته‌ای موجود نیست</h3>
+          <p className="text-gray-500">
+            {filters.severity || filters.wstg_category || filters.search
+              ? 'فیلترها را تغییر دهید یا جستجوی دیگری انجام دهید'
+              : 'اولین اسکن امنیتی را انجام دهید'
+            }
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {findings.map((finding) => {
+            const config = severityConfig[finding.severity] || severityConfig.info
+            const isExpanded = expandedFinding === finding._id
+            
+            return (
+              <div
+                key={finding._id}
+                className={`card ${finding.is_false_positive ? 'opacity-50' : ''}`}
+              >
+                <button
+                  onClick={() => setExpandedFinding(isExpanded ? null : finding._id)}
+                  className="w-full flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className={`w-2 h-12 rounded-full ${
+                      finding.severity === 'critical' ? 'bg-red-500' :
+                      finding.severity === 'high' ? 'bg-orange-500' :
+                      finding.severity === 'medium' ? 'bg-yellow-500' :
+                      finding.severity === 'low' ? 'bg-green-500' :
+                      'bg-blue-500'
+                    }`} />
+                    <div className="text-right">
+                      <p className="font-medium text-gray-900">
+                        {finding.title_fa || finding.title}
+                      </p>
+                      <div className="flex items-center gap-3 text-sm text-gray-500 mt-1">
+                        <span>{finding.wstg_id}</span>
+                        <span>•</span>
+                        <span>{finding.endpoint}</span>
+                        {finding.project_name && (
+                          <>
+                            <span>•</span>
+                            <span>{finding.project_name}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-3">
+                    <span className={config.badge}>{config.label}</span>
+                    {isExpanded ? (
+                      <ChevronUp className="w-5 h-5 text-gray-400" />
+                    ) : (
+                      <ChevronDown className="w-5 h-5 text-gray-400" />
+                    )}
+                  </div>
+                </button>
+                
+                {isExpanded && (
+                  <div className="mt-4 pt-4 border-t border-gray-100 space-y-4">
+                    <div>
+                      <h4 className="font-medium text-gray-700 mb-1">توضیحات</h4>
+                      <p className="text-gray-600">
+                        {finding.description_fa || finding.description}
+                      </p>
+                    </div>
+                    
+                    {finding.evidence && (
+                      <div>
+                        <h4 className="font-medium text-gray-700 mb-1">شواهد</h4>
+                        <pre className="bg-gray-50 p-3 rounded-lg text-sm overflow-x-auto" dir="ltr">
+                          {finding.evidence}
+                        </pre>
+                      </div>
+                    )}
+                    
+                    <div>
+                      <h4 className="font-medium text-gray-700 mb-1">توصیه</h4>
+                      <p className="text-gray-600">
+                        {finding.recommendation_fa || finding.recommendation}
+                      </p>
+                    </div>
+                    
+                    <div className="flex items-center justify-between pt-2">
+                      <div className="flex items-center gap-4 text-sm text-gray-500">
+                        {finding.owasp_top10_id && (
+                          <span>OWASP Top 10: {finding.owasp_top10_id}</span>
+                        )}
+                        {finding.cvss_score && (
+                          <span>CVSS: {finding.cvss_score}</span>
+                        )}
+                      </div>
+                      
+                      <Link
+                        to={`/scans/${finding.scan_id}`}
+                        className="text-sm text-primary-600 hover:underline flex items-center gap-1"
+                      >
+                        مشاهده اسکن
+                        <ExternalLink className="w-4 h-4" />
+                      </Link>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}

@@ -1,0 +1,482 @@
+import { useState } from 'react'
+import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { apiService } from '../services/api'
+import {
+  ArrowRight,
+  Globe,
+  CheckCircle,
+  XCircle,
+  Clock,
+  Shield,
+  Play,
+  FileText,
+  Copy,
+  RefreshCw,
+  AlertTriangle,
+  Loader2,
+  ExternalLink,
+  Settings
+} from 'lucide-react'
+import toast from 'react-hot-toast'
+
+export default function ProjectDetailPage() {
+  const { id } = useParams()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const [verificationMethod, setVerificationMethod] = useState('dns_txt')
+  const [showScanModal, setShowScanModal] = useState(false)
+  const [scanConfig, setScanConfig] = useState({
+    mode: 'safe',
+    categories: ['INFO', 'CONF', 'INPV']
+  })
+  
+  // Fetch project
+  const { data: project, isLoading, error } = useQuery({
+    queryKey: ['project', id],
+    queryFn: () => apiService.getProject(id),
+    select: (res) => res.data
+  })
+  
+  // Fetch verification status
+  const { data: verification } = useQuery({
+    queryKey: ['verification', id],
+    queryFn: () => apiService.getVerificationStatus(id),
+    select: (res) => res.data,
+    enabled: !!project
+  })
+  
+  // Initiate verification
+  const initVerification = useMutation({
+    mutationFn: () => apiService.initiateVerification(id, { method: verificationMethod }),
+    onSuccess: () => {
+      toast.success('فرآیند تأیید شروع شد')
+      queryClient.invalidateQueries(['verification', id])
+    },
+    onError: (err) => {
+      toast.error(err.response?.data?.detail || 'خطا در شروع فرآیند تأیید')
+    }
+  })
+  
+  // Verify domain
+  const verifyDomain = useMutation({
+    mutationFn: () => apiService.verifyDomain(id),
+    onSuccess: (res) => {
+      if (res.data.status === 'verified') {
+        toast.success('دامنه با موفقیت تأیید شد!')
+        queryClient.invalidateQueries(['project', id])
+        queryClient.invalidateQueries(['verification', id])
+      } else {
+        toast.error('تأیید دامنه ناموفق بود. لطفاً تنظیمات را بررسی کنید.')
+      }
+    },
+    onError: (err) => {
+      toast.error(err.response?.data?.detail || 'خطا در تأیید دامنه')
+    }
+  })
+  
+  // Create scan
+  const createScan = useMutation({
+    mutationFn: (config) => apiService.createScan({
+      project_id: id,
+      config
+    }),
+    onSuccess: (res) => {
+      toast.success('اسکن شروع شد')
+      setShowScanModal(false)
+      navigate(`/scans/${res.data._id}`)
+    },
+    onError: (err) => {
+      toast.error(err.response?.data?.detail || 'خطا در شروع اسکن')
+    }
+  })
+  
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text)
+    toast.success('کپی شد!')
+  }
+  
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
+      </div>
+    )
+  }
+  
+  if (error || !project) {
+    return (
+      <div className="card text-center py-12">
+        <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+        <p className="text-gray-600">پروژه یافت نشد</p>
+        <Link to="/projects" className="btn-primary mt-4 inline-flex">
+          بازگشت به پروژه‌ها
+        </Link>
+      </div>
+    )
+  }
+  
+  const isVerified = project.verification_status === 'verified'
+  
+  return (
+    <div className="space-y-6">
+      {/* Back button */}
+      <button
+        onClick={() => navigate('/projects')}
+        className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
+      >
+        <ArrowRight className="w-5 h-5" />
+        بازگشت به پروژه‌ها
+      </button>
+      
+      {/* Header */}
+      <div className="card">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-xl bg-primary-100 flex items-center justify-center">
+              <Globe className="w-7 h-7 text-primary-600" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">{project.name}</h1>
+              <a
+                href={`https://${project.domain}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary-600 hover:underline flex items-center gap-1"
+              >
+                {project.domain}
+                <ExternalLink className="w-4 h-4" />
+              </a>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-3">
+            {isVerified ? (
+              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-100 text-green-700 font-medium">
+                <CheckCircle className="w-5 h-5" />
+                تأیید شده
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-yellow-100 text-yellow-700 font-medium">
+                <Clock className="w-5 h-5" />
+                نیاز به تأیید
+              </span>
+            )}
+          </div>
+        </div>
+        
+        {project.description && (
+          <p className="mt-4 text-gray-600">{project.description}</p>
+        )}
+        
+        {/* Stats */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t border-gray-100">
+          <div className="text-center">
+            <p className="text-2xl font-bold text-gray-900">{project.scan_count || 0}</p>
+            <p className="text-sm text-gray-500">تعداد اسکن</p>
+          </div>
+          <div className="text-center">
+            <p className="text-2xl font-bold text-gray-900">{project.endpoints?.length || 0}</p>
+            <p className="text-sm text-gray-500">endpoint</p>
+          </div>
+          <div className="text-center">
+            <p className="text-2xl font-bold text-gray-900">
+              {project.last_scan_at 
+                ? new Date(project.last_scan_at).toLocaleDateString('fa-IR')
+                : '-'
+              }
+            </p>
+            <p className="text-sm text-gray-500">آخرین اسکن</p>
+          </div>
+          <div className="text-center">
+            <p className="text-2xl font-bold text-gray-900">
+              {new Date(project.created_at).toLocaleDateString('fa-IR')}
+            </p>
+            <p className="text-sm text-gray-500">تاریخ ایجاد</p>
+          </div>
+        </div>
+      </div>
+      
+      {/* Verification Section */}
+      {!isVerified && (
+        <div className="card">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <Shield className="w-5 h-5 text-primary-600" />
+            تأیید مالکیت دامنه
+          </h2>
+          
+          <p className="text-gray-600 mb-6">
+            برای اسکن این دامنه، ابتدا باید مالکیت آن را تأیید کنید. یکی از روش‌های زیر را انتخاب کنید:
+          </p>
+          
+          {/* Method selection */}
+          <div className="flex gap-4 mb-6">
+            <button
+              onClick={() => setVerificationMethod('dns_txt')}
+              className={`flex-1 p-4 rounded-lg border-2 transition-colors ${
+                verificationMethod === 'dns_txt'
+                  ? 'border-primary-500 bg-primary-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <p className="font-medium text-gray-900">رکورد DNS TXT</p>
+              <p className="text-sm text-gray-500 mt-1">افزودن رکورد TXT به DNS دامنه</p>
+            </button>
+            <button
+              onClick={() => setVerificationMethod('file')}
+              className={`flex-1 p-4 rounded-lg border-2 transition-colors ${
+                verificationMethod === 'file'
+                  ? 'border-primary-500 bg-primary-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <p className="font-medium text-gray-900">فایل HTML</p>
+              <p className="text-sm text-gray-500 mt-1">آپلود فایل در ریشه سایت</p>
+            </button>
+          </div>
+          
+          {/* Instructions */}
+          {verification?.token ? (
+            <div className="bg-gray-50 rounded-lg p-4 mb-6">
+              {verificationMethod === 'dns_txt' ? (
+                <>
+                  <p className="font-medium text-gray-900 mb-2">دستورالعمل:</p>
+                  <ol className="list-decimal list-inside space-y-2 text-gray-600 text-sm">
+                    <li>به تنظیمات DNS دامنه خود بروید</li>
+                    <li>یک رکورد TXT جدید اضافه کنید:</li>
+                  </ol>
+                  <div className="mt-3 p-3 bg-white rounded border border-gray-200" dir="ltr">
+                    <p className="text-sm text-gray-500 mb-1">Name/Host:</p>
+                    <div className="flex items-center gap-2">
+                      <code className="text-sm font-mono text-gray-900">
+                        _owasp-scanner-verify.{project.domain}
+                      </code>
+                      <button
+                        onClick={() => copyToClipboard(`_owasp-scanner-verify.${project.domain}`)}
+                        className="p-1 hover:bg-gray-100 rounded"
+                      >
+                        <Copy className="w-4 h-4 text-gray-500" />
+                      </button>
+                    </div>
+                    <p className="text-sm text-gray-500 mb-1 mt-3">Value:</p>
+                    <div className="flex items-center gap-2">
+                      <code className="text-sm font-mono text-gray-900 break-all">
+                        {verification.token}
+                      </code>
+                      <button
+                        onClick={() => copyToClipboard(verification.token)}
+                        className="p-1 hover:bg-gray-100 rounded"
+                      >
+                        <Copy className="w-4 h-4 text-gray-500" />
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="font-medium text-gray-900 mb-2">دستورالعمل:</p>
+                  <ol className="list-decimal list-inside space-y-2 text-gray-600 text-sm">
+                    <li>یک فایل با نام زیر در ریشه سایت ایجاد کنید:</li>
+                  </ol>
+                  <div className="mt-3 p-3 bg-white rounded border border-gray-200" dir="ltr">
+                    <p className="text-sm text-gray-500 mb-1">Path:</p>
+                    <div className="flex items-center gap-2">
+                      <code className="text-sm font-mono text-gray-900">
+                        /.well-known/owasp-scanner-verify.txt
+                      </code>
+                      <button
+                        onClick={() => copyToClipboard('/.well-known/owasp-scanner-verify.txt')}
+                        className="p-1 hover:bg-gray-100 rounded"
+                      >
+                        <Copy className="w-4 h-4 text-gray-500" />
+                      </button>
+                    </div>
+                    <p className="text-sm text-gray-500 mb-1 mt-3">Content:</p>
+                    <div className="flex items-center gap-2">
+                      <code className="text-sm font-mono text-gray-900 break-all">
+                        {verification.token}
+                      </code>
+                      <button
+                        onClick={() => copyToClipboard(verification.token)}
+                        className="p-1 hover:bg-gray-100 rounded"
+                      >
+                        <Copy className="w-4 h-4 text-gray-500" />
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            <button
+              onClick={() => initVerification.mutate()}
+              disabled={initVerification.isPending}
+              className="btn-secondary mb-6"
+            >
+              {initVerification.isPending ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                'شروع فرآیند تأیید'
+              )}
+            </button>
+          )}
+          
+          {verification?.token && (
+            <button
+              onClick={() => verifyDomain.mutate()}
+              disabled={verifyDomain.isPending}
+              className="btn-primary"
+            >
+              {verifyDomain.isPending ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  در حال بررسی...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-5 h-5" />
+                  بررسی تأیید
+                </>
+              )}
+            </button>
+          )}
+        </div>
+      )}
+      
+      {/* Actions */}
+      {isVerified && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <button
+            onClick={() => setShowScanModal(true)}
+            className="card hover:shadow-lg transition-shadow flex items-center gap-4 p-6"
+          >
+            <div className="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center">
+              <Play className="w-6 h-6 text-green-600" />
+            </div>
+            <div className="text-right">
+              <p className="font-semibold text-gray-900">شروع اسکن جدید</p>
+              <p className="text-sm text-gray-500">اسکن امنیتی بر اساس OWASP</p>
+            </div>
+          </button>
+          
+          <Link
+            to={`/scans?project=${id}`}
+            className="card hover:shadow-lg transition-shadow flex items-center gap-4 p-6"
+          >
+            <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center">
+              <FileText className="w-6 h-6 text-blue-600" />
+            </div>
+            <div className="text-right">
+              <p className="font-semibold text-gray-900">مشاهده اسکن‌ها</p>
+              <p className="text-sm text-gray-500">{project.scan_count || 0} اسکن انجام شده</p>
+            </div>
+          </Link>
+        </div>
+      )}
+      
+      {/* Scan Modal */}
+      {showScanModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-lg w-full p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">تنظیمات اسکن</h3>
+            
+            {/* Mode selection */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                حالت اسکن
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => setScanConfig(s => ({ ...s, mode: 'safe' }))}
+                  className={`p-3 rounded-lg border-2 ${
+                    scanConfig.mode === 'safe'
+                      ? 'border-green-500 bg-green-50'
+                      : 'border-gray-200'
+                  }`}
+                >
+                  <p className="font-medium text-gray-900">امن (Safe)</p>
+                  <p className="text-xs text-gray-500">بدون تغییر در سایت</p>
+                </button>
+                <button
+                  onClick={() => setScanConfig(s => ({ ...s, mode: 'aggressive' }))}
+                  className={`p-3 rounded-lg border-2 ${
+                    scanConfig.mode === 'aggressive'
+                      ? 'border-orange-500 bg-orange-50'
+                      : 'border-gray-200'
+                  }`}
+                >
+                  <p className="font-medium text-gray-900">تهاجمی (Aggressive)</p>
+                  <p className="text-xs text-gray-500">تست عمیق‌تر</p>
+                </button>
+              </div>
+              {scanConfig.mode === 'aggressive' && (
+                <p className="mt-2 text-sm text-orange-600 flex items-center gap-1">
+                  <AlertTriangle className="w-4 h-4" />
+                  این حالت ممکن است روی سایت تأثیر بگذارد
+                </p>
+              )}
+            </div>
+            
+            {/* Categories */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                دسته‌های تست
+              </label>
+              <div className="space-y-2">
+                {[
+                  { id: 'INFO', name: 'جمع‌آوری اطلاعات' },
+                  { id: 'CONF', name: 'تنظیمات امنیتی' },
+                  { id: 'INPV', name: 'تزریق (SQLi, XSS)' },
+                  { id: 'SESS', name: 'مدیریت Session' },
+                  { id: 'CRYP', name: 'رمزنگاری' },
+                ].map((cat) => (
+                  <label key={cat.id} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={scanConfig.categories.includes(cat.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setScanConfig(s => ({
+                            ...s,
+                            categories: [...s.categories, cat.id]
+                          }))
+                        } else {
+                          setScanConfig(s => ({
+                            ...s,
+                            categories: s.categories.filter(c => c !== cat.id)
+                          }))
+                        }
+                      }}
+                      className="rounded text-primary-600"
+                    />
+                    <span className="text-gray-700">{cat.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => createScan.mutate(scanConfig)}
+                disabled={createScan.isPending || scanConfig.categories.length === 0}
+                className="btn-primary flex-1"
+              >
+                {createScan.isPending ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  'شروع اسکن'
+                )}
+              </button>
+              <button
+                onClick={() => setShowScanModal(false)}
+                className="btn-secondary"
+              >
+                انصراف
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

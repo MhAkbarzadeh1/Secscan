@@ -3,7 +3,6 @@ import { useQuery } from '@tanstack/react-query'
 import { apiService } from '../services/api'
 import {
   Search,
-  Filter,
   AlertTriangle,
   ChevronDown,
   ChevronUp,
@@ -22,11 +21,11 @@ const severityOptions = [
 ]
 
 const severityConfig = {
-  critical: { label: 'بحرانی', badge: 'badge-critical' },
-  high: { label: 'بالا', badge: 'badge-high' },
-  medium: { label: 'متوسط', badge: 'badge-medium' },
-  low: { label: 'پایین', badge: 'badge-low' },
-  info: { label: 'اطلاعاتی', badge: 'badge-info' },
+  critical: { label: 'بحرانی', color: 'bg-red-100 text-red-700' },
+  high: { label: 'بالا', color: 'bg-orange-100 text-orange-700' },
+  medium: { label: 'متوسط', color: 'bg-yellow-100 text-yellow-700' },
+  low: { label: 'پایین', color: 'bg-green-100 text-green-700' },
+  info: { label: 'اطلاعاتی', color: 'bg-blue-100 text-blue-700' },
 }
 
 export default function FindingsPage() {
@@ -37,10 +36,17 @@ export default function FindingsPage() {
   })
   const [expandedFinding, setExpandedFinding] = useState(null)
   
+  // Build query params - only include non-empty values
+  const queryParams = {}
+  if (filters.severity) queryParams.severity = filters.severity
+  if (filters.wstg_category) queryParams.wstg_category = filters.wstg_category
+  if (filters.search) queryParams.search = filters.search
+  queryParams.limit = 100
+  
   // Fetch findings
   const { data, isLoading, error } = useQuery({
-    queryKey: ['findings', filters],
-    queryFn: () => apiService.getFindings({ ...filters, limit: 100 }),
+    queryKey: ['findings', queryParams],
+    queryFn: () => apiService.getFindings(queryParams),
   })
   
   // Fetch stats
@@ -57,11 +63,29 @@ export default function FindingsPage() {
   
   const findings = data?.data?.items || []
   const stats = statsData?.data || {}
-  const wstgCategories = categoriesData?.data || []
+  
+  // Convert categories object to array
+  const wstgCategories = (() => {
+    const catData = categoriesData?.data
+    if (!catData) return []
+    if (Array.isArray(catData)) return catData
+    return Object.entries(catData).map(([id, cat]) => ({ 
+      id, 
+      name: cat.name || id,
+      name_fa: cat.name_fa || cat.name || id
+    }))
+  })()
+  
+  // Helper to get count from stats
+  const getSeverityCount = (key) => {
+    const val = stats.by_severity?.[key]
+    if (typeof val === 'number') return val
+    if (val && typeof val === 'object') return val.count || 0
+    return 0
+  }
   
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">یافته‌های امنیتی</h1>
         <p className="text-gray-500 mt-1">مشاهده و مدیریت تمام آسیب‌پذیری‌ها</p>
@@ -78,7 +102,7 @@ export default function FindingsPage() {
             }`}
           >
             <p className="text-3xl font-bold text-gray-900">
-              {stats.by_severity?.[key] || 0}
+              {getSeverityCount(key)}
             </p>
             <p className="text-sm text-gray-500">{config.label}</p>
           </div>
@@ -150,15 +174,16 @@ export default function FindingsPage() {
         <div className="space-y-3">
           {findings.map((finding) => {
             const config = severityConfig[finding.severity] || severityConfig.info
-            const isExpanded = expandedFinding === finding._id
+            const findingId = finding.id || finding._id
+            const isExpanded = expandedFinding === findingId
             
             return (
               <div
-                key={finding._id}
+                key={findingId}
                 className={`card ${finding.is_false_positive ? 'opacity-50' : ''}`}
               >
                 <button
-                  onClick={() => setExpandedFinding(isExpanded ? null : finding._id)}
+                  onClick={() => setExpandedFinding(isExpanded ? null : findingId)}
                   className="w-full flex items-center justify-between"
                 >
                   <div className="flex items-center gap-4">
@@ -177,18 +202,14 @@ export default function FindingsPage() {
                         <span>{finding.wstg_id}</span>
                         <span>•</span>
                         <span>{finding.endpoint}</span>
-                        {finding.project_name && (
-                          <>
-                            <span>•</span>
-                            <span>{finding.project_name}</span>
-                          </>
-                        )}
                       </div>
                     </div>
                   </div>
                   
                   <div className="flex items-center gap-3">
-                    <span className={config.badge}>{config.label}</span>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${config.color}`}>
+                      {config.label}
+                    </span>
                     {isExpanded ? (
                       <ChevronUp className="w-5 h-5 text-gray-400" />
                     ) : (

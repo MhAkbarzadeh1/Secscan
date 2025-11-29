@@ -22,13 +22,11 @@ export default function ProjectsPage() {
   const [openMenu, setOpenMenu] = useState(null)
   const queryClient = useQueryClient()
   
-  // Fetch projects
   const { data, isLoading, error } = useQuery({
     queryKey: ['projects', search],
     queryFn: () => apiService.getProjects({ search, limit: 50 }),
   })
   
-  // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: (id) => apiService.deleteProject(id),
     onSuccess: () => {
@@ -77,7 +75,6 @@ export default function ProjectsPage() {
   
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">پروژه‌ها</h1>
@@ -89,7 +86,6 @@ export default function ProjectsPage() {
         </Link>
       </div>
       
-      {/* Search */}
       <div className="relative">
         <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
         <input
@@ -101,7 +97,6 @@ export default function ProjectsPage() {
         />
       </div>
       
-      {/* Projects Grid */}
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[...Array(6)].map((_, i) => (
@@ -131,7 +126,7 @@ export default function ProjectsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {projects.map((project) => (
-            <div key={project._id} className="card hover:shadow-lg transition-shadow">
+            <div key={project.id} className="card hover:shadow-lg transition-shadow">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-lg bg-primary-100 flex items-center justify-center">
@@ -145,13 +140,13 @@ export default function ProjectsPage() {
                 
                 <div className="relative">
                   <button
-                    onClick={() => setOpenMenu(openMenu === project._id ? null : project._id)}
+                    onClick={() => setOpenMenu(openMenu === project.id ? null : project.id)}
                     className="p-1 rounded hover:bg-gray-100"
                   >
                     <MoreVertical className="w-5 h-5 text-gray-400" />
                   </button>
                   
-                  {openMenu === project._id && (
+                  {openMenu === project.id && (
                     <>
                       <div
                         className="fixed inset-0 z-10"
@@ -159,7 +154,7 @@ export default function ProjectsPage() {
                       />
                       <div className="absolute left-0 mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 z-20">
                         <Link
-                          to={`/projects/${project._id}`}
+                          to={`/projects/${project.id}`}
                           className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
                           onClick={() => setOpenMenu(null)}
                         >
@@ -167,7 +162,7 @@ export default function ProjectsPage() {
                           مشاهده جزئیات
                         </Link>
                         <button
-                          onClick={() => handleDelete(project._id, project.name)}
+                          onClick={() => handleDelete(project.id, project.name)}
                           className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -196,7 +191,7 @@ export default function ProjectsPage() {
               </div>
               
               <Link
-                to={`/projects/${project._id}`}
+                to={`/projects/${project.id}`}
                 className="mt-4 w-full btn-outline text-sm"
               >
                 مشاهده پروژه

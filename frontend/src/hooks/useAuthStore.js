@@ -17,10 +17,8 @@ export const useAuthStore = create(
           const response = await api.post('/api/auth/login', { email, password })
           const { access_token, refresh_token } = response.data
           
-          // Set tokens
           set({ accessToken: access_token, refreshToken: refresh_token })
           
-          // Get user info
           const userResponse = await api.get('/api/auth/me', {
             headers: { Authorization: `Bearer ${access_token}` }
           })
@@ -34,10 +32,16 @@ export const useAuthStore = create(
           return { success: true }
         } catch (error) {
           set({ isLoading: false })
-          return {
-            success: false,
-            error: error.response?.data?.detail || 'خطا در ورود'
+          const detail = error.response?.data?.detail
+          let errorMsg = 'Login failed'
+          
+          if (typeof detail === 'string') {
+            errorMsg = detail
+          } else if (Array.isArray(detail)) {
+            errorMsg = detail.map(e => e.msg || String(e)).join(', ')
           }
+          
+          return { success: false, error: errorMsg }
         }
       },
       
@@ -47,17 +51,28 @@ export const useAuthStore = create(
           const response = await api.post('/api/auth/register', userData)
           return { success: true, data: response.data }
         } catch (error) {
-          return {
-            success: false,
-            error: error.response?.data?.detail || 'خطا در ثبت‌نام'
+          const detail = error.response?.data?.detail
+          let errorMsg = 'Registration failed'
+          
+          if (typeof detail === 'string') {
+            errorMsg = detail
+          } else if (Array.isArray(detail)) {
+            errorMsg = detail.map(e => e.msg || String(e)).join(', ')
           }
+          
+          return { success: false, error: errorMsg }
         }
       },
       
       // Logout
       logout: async () => {
         try {
-          await api.post('/api/auth/logout')
+          const { accessToken } = get()
+          if (accessToken) {
+            await api.post('/api/auth/logout', {}, {
+              headers: { Authorization: `Bearer ${accessToken}` }
+            })
+          }
         } catch (error) {
           console.error('Logout error:', error)
         } finally {
@@ -118,7 +133,6 @@ export const useAuthStore = create(
             isLoading: false
           })
         } catch (error) {
-          // Try to refresh token
           const refreshed = await refreshAccessToken()
           if (refreshed) {
             await get().checkAuth()
@@ -156,5 +170,4 @@ export const useAuthStore = create(
   )
 )
 
-// Initialize on load
 useAuthStore.getState().initialize()

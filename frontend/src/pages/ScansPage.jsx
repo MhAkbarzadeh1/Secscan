@@ -126,8 +126,8 @@ export default function ScansPage() {
         <div className="space-y-3">
           {scans.map((scan) => (
             <Link
-              key={scan._id}
-              to={`/scans/${scan._id}`}
+              key={scan.id || scan._id}
+              to={`/scans/${scan.id || scan._id}`}
               className="card hover:shadow-lg transition-shadow block"
             >
               <div className="flex items-center justify-between">

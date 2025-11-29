@@ -31,7 +31,8 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     
     # CORS
-    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"       
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
+          
     # Rate Limiting
     RATE_LIMIT_PER_MINUTE: int = 60
     SCAN_RATE_LIMIT_PER_MINUTE: int = 10

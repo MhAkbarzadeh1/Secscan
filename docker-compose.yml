@@ -44,7 +44,7 @@ services:
       retries: 3
       start_period: 10s
 
-  # ===========================================
+# ===========================================
   # Frontend (React + Vite)
   # ===========================================
   frontend:
@@ -57,11 +57,14 @@ services:
       - "3000:5173"
     environment:
       - VITE_API_URL=http://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
     depends_on:
       - backend
     networks:
       - owasp-network
-
+      
   # ===========================================
   # MongoDB Database
   # ===========================================

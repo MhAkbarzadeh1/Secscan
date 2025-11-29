@@ -42,7 +42,7 @@ export default function NewProjectPage() {
     mutationFn: (data) => apiService.createProject(data),
     onSuccess: (response) => {
       toast.success('پروژه با موفقیت ایجاد شد')
-      navigate(`/projects/${response.data._id}`)
+      navigate(`/projects/${response.data.id}`)
     },
     onError: (error) => {
       toast.error(error.response?.data?.detail || 'خطا در ایجاد پروژه')
@@ -55,7 +55,6 @@ export default function NewProjectPage() {
   
   return (
     <div className="max-w-2xl mx-auto">
-      {/* Back button */}
       <button
         onClick={() => navigate('/projects')}
         className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-6"
@@ -76,7 +75,6 @@ export default function NewProjectPage() {
         </div>
         
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-          {/* Name */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               نام پروژه
@@ -92,7 +90,6 @@ export default function NewProjectPage() {
             )}
           </div>
           
-          {/* Domain */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               دامنه
@@ -119,7 +116,6 @@ export default function NewProjectPage() {
             )}
           </div>
           
-          {/* Description */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               توضیحات (اختیاری)
@@ -135,7 +131,6 @@ export default function NewProjectPage() {
             )}
           </div>
           
-          {/* Info box */}
           <div className="flex items-start gap-3 p-4 bg-blue-50 rounded-lg">
             <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
             <div className="text-sm text-blue-800">
@@ -148,7 +143,6 @@ export default function NewProjectPage() {
             </div>
           </div>
           
-          {/* Submit */}
           <div className="flex items-center gap-3">
             <button
               type="submit"

@@ -208,13 +208,17 @@ async def get_findings_stats(
             "name": top10_info.get("name", top10_id)
         }
     
+    total_list = data.get("total", [])
+    fp_list = data.get("false_positives", [])
+    verified_list = data.get("verified", [])
+    
     return {
-        "total": data.get("total", [{}])[0].get("count", 0),
+        "total": total_list[0].get("count", 0) if total_list else 0,
         "by_severity": severity_stats,
         "by_wstg_category": wstg_stats,
         "by_owasp_top10": owasp_stats,
-        "false_positives": data.get("false_positives", [{}])[0].get("count", 0),
-        "verified": data.get("verified", [{}])[0].get("count", 0)
+        "false_positives": fp_list[0].get("count", 0) if fp_list else 0,
+        "verified": verified_list[0].get("count", 0) if verified_list else 0
     }
 
 

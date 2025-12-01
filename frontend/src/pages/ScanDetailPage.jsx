@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiService } from '../services/api'
@@ -11,13 +11,10 @@ import {
   XCircle,
   Clock,
   AlertTriangle,
-  FileText,
-  Download,
   Loader2,
   Shield,
   ChevronDown,
-  ChevronUp,
-  ExternalLink
+  ChevronUp
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -34,13 +31,6 @@ export default function ScanDetailPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [expandedFinding, setExpandedFinding] = useState(null)
-  const [showReportModal, setShowReportModal] = useState(false)
-  const [reportConfig, setReportConfig] = useState({
-    format: 'pdf',
-    language: 'fa',
-    include_evidence: false,
-    include_remediation: true
-  })
   
   // Fetch scan
   const { data: scan, isLoading } = useQuery({
@@ -86,18 +76,6 @@ export default function ScanDetailPage() {
     }
   })
   
-  // Generate report
-  const reportMutation = useMutation({
-    mutationFn: (config) => apiService.generateReport({ scan_id: id, ...config }),
-    onSuccess: () => {
-      toast.success('گزارش در حال تولید است')
-      setShowReportModal(false)
-    },
-    onError: (err) => {
-      toast.error(err.response?.data?.detail || 'خطا در تولید گزارش')
-    }
-  })
-  
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -121,6 +99,9 @@ export default function ScanDetailPage() {
   const isRunning = scan.status === 'running'
   const isCompleted = scan.status === 'completed'
   const isFailed = scan.status === 'failed'
+  
+  // Get severity keys for mapping
+  const severityKeys = Object.keys(severityConfig)
   
   return (
     <div className="space-y-6">
@@ -186,14 +167,11 @@ export default function ScanDetailPage() {
               </button>
             )}
             
+            {/* Link to reports page for completed scans with findings */}
             {isCompleted && findings.length > 0 && (
-              <button
-                onClick={() => setShowReportModal(true)}
-                className="btn-primary"
-              >
-                <FileText className="w-5 h-5" />
-                تولید گزارش
-              </button>
+              <Link to="/reports" className="btn-primary">
+                مشاهده گزارش‌ها
+              </Link>
             )}
           </div>
         </div>
@@ -227,14 +205,17 @@ export default function ScanDetailPage() {
         {/* Summary for completed */}
         {isCompleted && (
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-6 pt-6 border-t border-gray-100">
-            {Object.entries(severityConfig).map(([key, config]) => (
-              <div key={key} className={`text-center p-3 rounded-lg ${config.bgLight}`}>
-                <p className={`text-2xl font-bold ${config.textColor}`}>
-                  {scan.findings_by_severity?.[key] || 0}
-                </p>
-                <p className="text-sm text-gray-600">{config.label}</p>
-              </div>
-            ))}
+            {severityKeys.map((key) => {
+              const config = severityConfig[key]
+              return (
+                <div key={key} className={`text-center p-3 rounded-lg ${config.bgLight}`}>
+                  <p className={`text-2xl font-bold ${config.textColor}`}>
+                    {scan.findings_by_severity?.[key] || 0}
+                  </p>
+                  <p className="text-sm text-gray-600">{config.label}</p>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
@@ -340,117 +321,6 @@ export default function ScanDetailPage() {
               })}
             </div>
           )}
-        </div>
-      )}
-      
-      {/* Report Modal */}
-      {showReportModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-md w-full p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">تولید گزارش</h3>
-            
-            {/* Format */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                فرمت گزارش
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                {['pdf', 'html', 'json'].map((format) => (
-                  <button
-                    key={format}
-                    onClick={() => setReportConfig(c => ({ ...c, format }))}
-                    className={`p-2 rounded-lg border-2 text-sm font-medium ${
-                      reportConfig.format === format
-                        ? 'border-primary-500 bg-primary-50 text-primary-700'
-                        : 'border-gray-200 text-gray-600'
-                    }`}
-                  >
-                    {format.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-            </div>
-            
-            {/* Language */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                زبان گزارش
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => setReportConfig(c => ({ ...c, language: 'fa' }))}
-                  className={`p-2 rounded-lg border-2 text-sm font-medium ${
-                    reportConfig.language === 'fa'
-                      ? 'border-primary-500 bg-primary-50 text-primary-700'
-                      : 'border-gray-200 text-gray-600'
-                  }`}
-                >
-                  فارسی
-                </button>
-                <button
-                  onClick={() => setReportConfig(c => ({ ...c, language: 'en' }))}
-                  className={`p-2 rounded-lg border-2 text-sm font-medium ${
-                    reportConfig.language === 'en'
-                      ? 'border-primary-500 bg-primary-50 text-primary-700'
-                      : 'border-gray-200 text-gray-600'
-                  }`}
-                >
-                  English
-                </button>
-              </div>
-            </div>
-            
-            {/* Options */}
-            <div className="space-y-2 mb-6">
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={reportConfig.include_remediation}
-                  onChange={(e) => setReportConfig(c => ({
-                    ...c,
-                    include_remediation: e.target.checked
-                  }))}
-                  className="rounded text-primary-600"
-                />
-                <span className="text-sm text-gray-700">شامل توصیه‌های رفع</span>
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={reportConfig.include_evidence}
-                  onChange={(e) => setReportConfig(c => ({
-                    ...c,
-                    include_evidence: e.target.checked
-                  }))}
-                  className="rounded text-primary-600"
-                />
-                <span className="text-sm text-gray-700">شامل شواهد فنی</span>
-              </label>
-            </div>
-            
-            <div className="flex gap-3">
-              <button
-                onClick={() => reportMutation.mutate(reportConfig)}
-                disabled={reportMutation.isPending}
-                className="btn-primary flex-1"
-              >
-                {reportMutation.isPending ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <>
-                    <Download className="w-5 h-5" />
-                    تولید گزارش
-                  </>
-                )}
-              </button>
-              <button
-                onClick={() => setShowReportModal(false)}
-                className="btn-secondary"
-              >
-                انصراف
-              </button>
-            </div>
-          </div>
         </div>
       )}
     </div>

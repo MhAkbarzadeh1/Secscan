@@ -31,6 +31,15 @@ router = APIRouter()
 report_service = ReportService()
 
 
+def ensure_utc(dt: datetime) -> datetime:
+    """Ensure datetime is timezone-aware (UTC)."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 @router.post("/generate", response_model=ReportResponse, status_code=status.HTTP_201_CREATED)
 async def generate_report(
     report_data: ReportRequest,
@@ -205,8 +214,9 @@ async def download_report(
             detail="دسترسی غیرمجاز"
         )
     
-    # Check expiration
-    if report["expires_at"] < datetime.now(timezone.utc):
+    # Check expiration (ensure timezone-aware comparison)
+    expires_at = ensure_utc(report["expires_at"])
+    if expires_at < datetime.now(timezone.utc):
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
             detail="گزارش منقضی شده است"

@@ -29,9 +29,11 @@ async def list_findings(
     project_id: Optional[str] = None,
     severity: Optional[SeverityLevel] = None,
     wstg_category: Optional[str] = None,
+    search: Optional[str] = None,
     is_false_positive: Optional[bool] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    limit: Optional[int] = Query(None, ge=1, le=500),
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """
@@ -55,6 +57,19 @@ async def list_findings(
     if is_false_positive is not None:
         query["is_false_positive"] = is_false_positive
     
+    # Search in title, description, endpoint, wstg_id
+    if search and search.strip():
+        search_term = search.strip()
+        query["$or"] = [
+            {"title": {"$regex": search_term, "$options": "i"}},
+            {"title_fa": {"$regex": search_term, "$options": "i"}},
+            {"description": {"$regex": search_term, "$options": "i"}},
+            {"description_fa": {"$regex": search_term, "$options": "i"}},
+            {"endpoint": {"$regex": search_term, "$options": "i"}},
+            {"wstg_id": {"$regex": search_term, "$options": "i"}},
+            {"owasp_top10_id": {"$regex": search_term, "$options": "i"}},
+        ]
+    
     # For regular users, only show their findings
     if current_user["role"] == Role.USER:
         # Get user's project IDs
@@ -63,18 +78,44 @@ async def list_findings(
             {"_id": 1}
         ).to_list(length=1000)
         project_ids = [p["_id"] for p in user_projects]
-        query["project_id"] = {"$in": project_ids}
+        
+        # If user already has $or query, wrap in $and
+        if "$or" in query:
+            query = {
+                "$and": [
+                    {"project_id": {"$in": project_ids}},
+                    {"$or": query["$or"]}
+                ]
+            }
+            # Add other filters
+            if scan_id:
+                query["$and"].append({"scan_id": scan_id})
+            if severity:
+                query["$and"].append({"severity": severity.value})
+            if wstg_category:
+                query["$and"].append({"wstg_id": {"$regex": f"^WSTG-{wstg_category}"}})
+            if is_false_positive is not None:
+                query["$and"].append({"is_false_positive": is_false_positive})
+        else:
+            query["project_id"] = {"$in": project_ids}
     
     # Get total count
     total = await findings_collection().count_documents(query)
     
-    # Get paginated results
-    skip = (page - 1) * page_size
-    cursor = findings_collection().find(query).skip(skip).limit(page_size).sort([
+    # Use limit if provided, otherwise use pagination
+    if limit:
+        actual_limit = limit
+        skip = 0
+    else:
+        actual_limit = page_size
+        skip = (page - 1) * page_size
+    
+    # Get results
+    cursor = findings_collection().find(query).skip(skip).limit(actual_limit).sort([
         ("severity", 1),  # Critical first
         ("created_at", -1)
     ])
-    findings = await cursor.to_list(length=page_size)
+    findings = await cursor.to_list(length=actual_limit)
     
     items = [
         FindingResponse(
@@ -82,7 +123,9 @@ async def list_findings(
             scan_id=f["scan_id"],
             project_id=f["project_id"],
             title=f["title"],
+            title_fa=f.get("title_fa"),
             description=f["description"],
+            description_fa=f.get("description_fa"),
             severity=SeverityLevel(f["severity"]),
             wstg_id=f["wstg_id"],
             owasp_top10_id=f.get("owasp_top10_id"),
@@ -105,8 +148,8 @@ async def list_findings(
         items=items,
         total=total,
         page=page,
-        page_size=page_size,
-        pages=(total + page_size - 1) // page_size
+        page_size=page_size if not limit else limit,
+        pages=(total + (page_size if not limit else limit) - 1) // (page_size if not limit else limit) if total > 0 else 1
     )
 
 
@@ -252,7 +295,9 @@ async def get_finding(
         scan_id=finding["scan_id"],
         project_id=finding["project_id"],
         title=finding["title"],
+        title_fa=finding.get("title_fa"),
         description=finding["description"],
+        description_fa=finding.get("description_fa"),
         severity=SeverityLevel(finding["severity"]),
         wstg_id=finding["wstg_id"],
         owasp_top10_id=finding.get("owasp_top10_id"),
@@ -334,7 +379,9 @@ async def update_finding(
         scan_id=updated["scan_id"],
         project_id=updated["project_id"],
         title=updated["title"],
+        title_fa=updated.get("title_fa"),
         description=updated["description"],
+        description_fa=updated.get("description_fa"),
         severity=SeverityLevel(updated["severity"]),
         wstg_id=updated["wstg_id"],
         owasp_top10_id=updated.get("owasp_top10_id"),

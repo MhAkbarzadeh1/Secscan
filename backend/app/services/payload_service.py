@@ -19,7 +19,7 @@ from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
 import aiofiles
 
-from app.core.database import payloads_collection
+from app.core.database import payloads_collection, get_database
 from app.core.config import settings
 from app.core.security import is_payload_safe
 from app.models.schemas import PayloadCategory
@@ -87,6 +87,9 @@ AGGRESSIVE_PATTERNS = [
     r"pg_sleep\s*\(\s*\d{2,}",
 ]
 
+# Sync status document ID
+SYNC_STATUS_ID = "payload_sync_status"
+
 
 class PayloadService:
     """Service for managing security payloads."""
@@ -94,17 +97,50 @@ class PayloadService:
     def __init__(self):
         self.payloads_dir = settings.PAYLOADS_DIR
         self.repo_url = settings.PAYLOADS_REPO_URL
-        self.sync_status = {
-            "is_syncing": False,
-            "last_sync": None,
-            "last_error": None,
-            "progress": 0,
-            "message": ""
-        }
+    
+    async def _get_sync_collection(self):
+        """Get the sync status collection."""
+        db = get_database()
+        return db.sync_status
+    
+    async def _get_status_from_db(self) -> Dict[str, Any]:
+        """Get sync status from database."""
+        collection = await self._get_sync_collection()
+        status = await collection.find_one({"_id": SYNC_STATUS_ID})
+        
+        if not status:
+            # Return default status
+            return {
+                "_id": SYNC_STATUS_ID,
+                "is_syncing": False,
+                "last_sync": None,
+                "last_error": None,
+                "progress": 0,
+                "message": "Not synced yet"
+            }
+        
+        return status
+    
+    async def _update_status(self, **kwargs):
+        """Update sync status in database."""
+        collection = await self._get_sync_collection()
+        await collection.update_one(
+            {"_id": SYNC_STATUS_ID},
+            {"$set": kwargs},
+            upsert=True
+        )
     
     async def get_sync_status(self) -> Dict[str, Any]:
         """Get current sync status."""
-        return self.sync_status.copy()
+        status = await self._get_status_from_db()
+        # Remove _id from response
+        return {
+            "is_syncing": status.get("is_syncing", False),
+            "last_sync": status.get("last_sync"),
+            "last_error": status.get("last_error"),
+            "progress": status.get("progress", 0),
+            "message": status.get("message", "")
+        }
     
     async def sync_payloads(self):
         """
@@ -116,23 +152,29 @@ class PayloadService:
         3. Categorize and classify payloads
         4. Store in database with safe/aggressive flags
         """
-        if self.sync_status["is_syncing"]:
+        # Check if already syncing
+        current_status = await self._get_status_from_db()
+        if current_status.get("is_syncing", False):
             logger.warning("Sync already in progress")
             return
         
-        self.sync_status["is_syncing"] = True
-        self.sync_status["progress"] = 0
-        self.sync_status["message"] = "Starting sync..."
+        # Mark as syncing
+        await self._update_status(
+            is_syncing=True,
+            progress=0,
+            message="Starting sync...",
+            last_error=None
+        )
         
         try:
             # Step 1: Clone or update repository
+            await self._update_status(progress=5, message="Updating repository...")
             await self._update_repository()
-            self.sync_status["progress"] = 20
-            self.sync_status["message"] = "Repository updated"
+            await self._update_status(progress=20, message="Repository updated")
             
             # Step 2: Clear existing payloads
             await payloads_collection().delete_many({})
-            self.sync_status["progress"] = 25
+            await self._update_status(progress=25, message="Cleared old payloads")
             
             # Step 3: Parse and import payloads
             total_imported = 0
@@ -140,35 +182,42 @@ class PayloadService:
             total_categories = len(PAYLOAD_MAPPINGS)
             
             for folder_name, category in PAYLOAD_MAPPINGS.items():
-                self.sync_status["message"] = f"Processing {folder_name}..."
+                await self._update_status(
+                    message=f"Processing {folder_name}..."
+                )
                 
                 count = await self._import_category(folder_name, category)
                 total_imported += count
                 categories_processed += 1
                 
-                progress = 25 + int((categories_processed / total_categories) * 70)
-                self.sync_status["progress"] = progress
+                progress = 25 + int((categories_processed / total_categories) * 60)
+                await self._update_status(progress=progress)
                 
                 logger.info(f"Imported {count} payloads for {category.value}")
             
             # Step 4: Generate additional payloads if needed
+            await self._update_status(progress=90, message="Generating variations...")
             for category in PayloadCategory:
                 await self._ensure_minimum_payloads(category, min_count=1000)
             
-            self.sync_status["progress"] = 100
-            self.sync_status["message"] = f"Sync completed: {total_imported} payloads imported"
-            self.sync_status["last_sync"] = datetime.now(timezone.utc)
-            self.sync_status["last_error"] = None
+            # Mark as completed
+            await self._update_status(
+                is_syncing=False,
+                progress=100,
+                message=f"Sync completed: {total_imported} payloads imported",
+                last_sync=datetime.now(timezone.utc),
+                last_error=None
+            )
             
             logger.info(f"Payload sync completed: {total_imported} total payloads")
             
         except Exception as e:
             logger.error(f"Payload sync failed: {e}", exc_info=True)
-            self.sync_status["last_error"] = str(e)
-            self.sync_status["message"] = f"Sync failed: {str(e)}"
-            
-        finally:
-            self.sync_status["is_syncing"] = False
+            await self._update_status(
+                is_syncing=False,
+                last_error=str(e),
+                message=f"Sync failed: {str(e)}"
+            )
     
     async def _update_repository(self):
         """Clone or update the PayloadsAllTheThings repository."""
@@ -508,3 +557,49 @@ class PayloadService:
         ).limit(limit).to_list(length=limit)
         
         return [p["payload"] for p in payloads]
+    
+    async def get_stats(self) -> Dict[str, Any]:
+        """Get payload statistics."""
+        pipeline = [
+            {"$facet": {
+                "total": [{"$count": "count"}],
+                "safe": [
+                    {"$match": {"is_aggressive": False}},
+                    {"$count": "count"}
+                ],
+                "aggressive": [
+                    {"$match": {"is_aggressive": True}},
+                    {"$count": "count"}
+                ],
+                "by_category": [
+                    {"$group": {"_id": "$category", "count": {"$sum": 1}}}
+                ]
+            }}
+        ]
+        
+        result = await payloads_collection().aggregate(pipeline).to_list(length=1)
+        
+        if not result:
+            return {
+                "total": 0,
+                "safe": 0,
+                "aggressive": 0,
+                "categories": 0,
+                "by_category": {}
+            }
+        
+        data = result[0]
+        
+        total = data["total"][0]["count"] if data["total"] else 0
+        safe = data["safe"][0]["count"] if data["safe"] else 0
+        aggressive = data["aggressive"][0]["count"] if data["aggressive"] else 0
+        
+        by_category = {item["_id"]: item["count"] for item in data.get("by_category", [])}
+        
+        return {
+            "total": total,
+            "safe": safe,
+            "aggressive": aggressive,
+            "categories": len(by_category),
+            "by_category": by_category
+        }

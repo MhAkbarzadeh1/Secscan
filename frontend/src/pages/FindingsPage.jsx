@@ -37,16 +37,18 @@ export default function FindingsPage() {
   const [expandedFinding, setExpandedFinding] = useState(null)
   
   // Build query params - only include non-empty values
-  const queryParams = {}
-  if (filters.severity) queryParams.severity = filters.severity
-  if (filters.wstg_category) queryParams.wstg_category = filters.wstg_category
-  if (filters.search) queryParams.search = filters.search
-  queryParams.limit = 100
+  const queryParams = {
+    limit: 100,
+    ...(filters.severity && { severity: filters.severity }),
+    ...(filters.wstg_category && { wstg_category: filters.wstg_category }),
+    ...(filters.search && { search: filters.search }),
+  }
   
   // Fetch findings
   const { data, isLoading, error } = useQuery({
-    queryKey: ['findings', queryParams],
+    queryKey: ['findings', filters.severity, filters.wstg_category, filters.search],
     queryFn: () => apiService.getFindings(queryParams),
+    keepPreviousData: false,
   })
   
   // Fetch stats

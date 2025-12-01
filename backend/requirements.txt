@@ -42,3 +42,8 @@ python-dotenv==1.0.1
 
 # Rate limiting
 slowapi==0.1.9
+
+# PDF generation
+weasyprint==60.1
+pydyf==0.8.0
+

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiService } from '../services/api'
 import { useAuthStore } from '../hooks/useAuthStore'
@@ -9,7 +9,6 @@ import {
   Shield,
   Clock,
   CheckCircle,
-  AlertTriangle,
   Loader2,
   HardDrive,
   Zap
@@ -20,6 +19,7 @@ export default function SettingsPage() {
   const { hasRole } = useAuthStore()
   const queryClient = useQueryClient()
   const isAdmin = hasRole(['owner', 'admin'])
+  const wasSyncingRef = useRef(false)
   
   // Fetch payload stats
   const { data: payloadStats, isLoading: loadingStats } = useQuery({
@@ -28,25 +28,74 @@ export default function SettingsPage() {
     select: (res) => res.data
   })
   
-  // Fetch sync status
+  // Fetch sync status with polling every 2 seconds
   const { data: syncStatus } = useQuery({
     queryKey: ['sync-status'],
     queryFn: () => apiService.getSyncStatus(),
     select: (res) => res.data,
-    refetchInterval: (data) => data?.is_syncing ? 2000 : false
+    refetchInterval: 2000
   })
+  
+  // Detect when sync completes
+  useEffect(() => {
+    if (syncStatus) {
+      // If was syncing and now not syncing
+      if (wasSyncingRef.current && !syncStatus.is_syncing) {
+        // Refresh stats
+        queryClient.invalidateQueries({ queryKey: ['payload-stats'] })
+        
+        // Show success message
+        if (syncStatus.progress === 100 && !syncStatus.last_error) {
+          toast.success('همگام‌سازی با موفقیت انجام شد')
+        } else if (syncStatus.last_error) {
+          toast.error(`خطا: ${syncStatus.last_error}`)
+        }
+      }
+      
+      // Update ref
+      wasSyncingRef.current = syncStatus.is_syncing
+    }
+  }, [syncStatus, queryClient])
   
   // Sync payloads mutation
   const syncMutation = useMutation({
     mutationFn: () => apiService.syncPayloads(),
     onSuccess: () => {
       toast.success('همگام‌سازی شروع شد')
-      queryClient.invalidateQueries(['sync-status'])
+      wasSyncingRef.current = true
+      queryClient.invalidateQueries({ queryKey: ['sync-status'] })
     },
     onError: (err) => {
       toast.error(err.response?.data?.detail || 'خطا در شروع همگام‌سازی')
     }
   })
+  
+  // Get stats values (handle both naming conventions)
+  const totalPayloads = payloadStats?.total_count ?? payloadStats?.total ?? 0
+  const safePayloads = payloadStats?.safe_count ?? payloadStats?.safe ?? 0
+  const aggressivePayloads = payloadStats?.aggressive_count ?? payloadStats?.aggressive ?? 0
+  const categoriesCount = payloadStats?.by_category 
+    ? Object.keys(payloadStats.by_category).length 
+    : (payloadStats?.categories ?? 0)
+  
+  // Format date for Tehran timezone (UTC+3:30)
+  const formatDate = (dateStr) => {
+    if (!dateStr) return ''
+    try {
+      const date = new Date(dateStr)
+      // Add 3 hours and 30 minutes for Tehran timezone
+      const tehranDate = new Date(date.getTime() + (3.5 * 60 * 60 * 1000))
+      return tehranDate.toLocaleString('fa-IR', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    } catch {
+      return new Date(dateStr).toLocaleString('fa-IR')
+    }
+  }
   
   return (
     <div className="space-y-6">
@@ -77,41 +126,42 @@ export default function SettingsPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             <div className="p-4 bg-gray-50 rounded-lg text-center">
               <p className="text-2xl font-bold text-gray-900">
-                {payloadStats?.total || 0}
+                {totalPayloads.toLocaleString('fa-IR')}
               </p>
               <p className="text-sm text-gray-500">کل پیلودها</p>
             </div>
             <div className="p-4 bg-green-50 rounded-lg text-center">
               <p className="text-2xl font-bold text-green-600">
-                {payloadStats?.safe || 0}
+                {safePayloads.toLocaleString('fa-IR')}
               </p>
               <p className="text-sm text-gray-500">امن</p>
             </div>
             <div className="p-4 bg-orange-50 rounded-lg text-center">
               <p className="text-2xl font-bold text-orange-600">
-                {payloadStats?.aggressive || 0}
+                {aggressivePayloads.toLocaleString('fa-IR')}
               </p>
               <p className="text-sm text-gray-500">تهاجمی</p>
             </div>
             <div className="p-4 bg-blue-50 rounded-lg text-center">
               <p className="text-2xl font-bold text-blue-600">
-                {payloadStats?.categories || 0}
+                {categoriesCount.toLocaleString('fa-IR')}
               </p>
               <p className="text-sm text-gray-500">دسته‌بندی</p>
             </div>
           </div>
         )}
         
-        {/* Sync status */}
+        {/* Sync status - in progress */}
         {syncStatus?.is_syncing && (
           <div className="mb-6 p-4 bg-blue-50 rounded-lg">
             <div className="flex items-center gap-3 mb-2">
               <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
               <span className="font-medium text-blue-900">در حال همگام‌سازی...</span>
+              <span className="text-sm text-blue-600">({syncStatus.progress || 0}%)</span>
             </div>
             <div className="progress-bar">
               <div
-                className="progress-bar-fill"
+                className="progress-bar-fill transition-all duration-300"
                 style={{ width: `${syncStatus.progress || 0}%` }}
               />
             </div>
@@ -119,13 +169,24 @@ export default function SettingsPage() {
           </div>
         )}
         
-        {syncStatus?.last_sync && !syncStatus?.is_syncing && (
+        {/* Sync status - completed */}
+        {!syncStatus?.is_syncing && syncStatus?.progress === 100 && syncStatus?.message?.includes('completed') && (
+          <div className="mb-6 p-4 bg-green-50 rounded-lg">
+            <div className="flex items-center gap-3">
+              <CheckCircle className="w-5 h-5 text-green-600" />
+              <span className="font-medium text-green-900">{syncStatus.message}</span>
+            </div>
+          </div>
+        )}
+        
+        {/* Last sync info */}
+        {!syncStatus?.is_syncing && (syncStatus?.last_sync || payloadStats?.last_sync) && (
           <div className="mb-6 flex items-center gap-2 text-sm text-gray-500">
             <Clock className="w-4 h-4" />
             <span>
-              آخرین همگام‌سازی: {new Date(syncStatus.last_sync).toLocaleString('fa-IR')}
+              آخرین همگام‌سازی: {formatDate(syncStatus?.last_sync || payloadStats?.last_sync)}
             </span>
-            {syncStatus.last_error && (
+            {syncStatus?.last_error && (
               <span className="text-red-500">({syncStatus.last_error})</span>
             )}
           </div>
@@ -173,7 +234,7 @@ export default function SettingsPage() {
                 <p className="text-sm text-gray-500">تعداد اسکن‌های موازی</p>
               </div>
             </div>
-            <span className="text-lg font-semibold text-gray-900">5</span>
+            <span className="text-lg font-semibold text-gray-900">۵</span>
           </div>
           
           <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
